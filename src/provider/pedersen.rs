@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 /// A type that holds commitment generators
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// pederson commitment key
 pub struct CommitmentKey<G: Group> {
   ck: Vec<G::PreprocessedGroupElement>,
   _p: PhantomData<G>,
@@ -105,6 +106,11 @@ impl<G: Group> MulAssign<G::Scalar> for Commitment<G> {
   }
 }
 
+/*
+'a 和 'b 是Rust中的生命周期变量，用于表示引用的有效范围。具体来说，'a 和'b 表示 self 和 scalar 的有效范围，即它们分别引用的值在函数执行期间必须保持有效。
+'a 和 'b 加上前缀 ' 表示这是生命周期变量。在Rust中，生命周期是指引用的有效期，确保了引用的合法性和有效性。我们需要使用生命周期变量来避免产生悬垂引用，确保引用所指向的值在程序中一直保持有效，从而避免了许多内存问题。
+在这个实现中，'a 和 'b 是用于支持在引用上使用生命周期注释的方式。由于Commitment和G::Scalar是不同的类型，因此必须将其作为引用来使用。'a 和 'b 实际上就是声明了 &'a Commitment<G> 和 &'b G::Scalar 这两种不同的引用类型，告诉编译器它们的生命周期和有效范围，从而保证代码的正确性。
+ */
 impl<'a, 'b, G: Group> Mul<&'b G::Scalar> for &'a Commitment<G> {
   type Output = Commitment<G>;
   fn mul(self, scalar: &'b G::Scalar) -> Commitment<G> {
@@ -114,6 +120,9 @@ impl<'a, 'b, G: Group> Mul<&'b G::Scalar> for &'a Commitment<G> {
   }
 }
 
+/*
+第二个函数 Mul<G::Scalar> 是一个针对 G::Scalar 类型值的乘法运算符重载实现，它接受一个 G::Scalar 类型的值，并返回一个 Commitment<G> 类型的值。该函数的目的是将一个 Commitment<G> 类型的值与一个 G::Scalar 类型的值相乘，并返回结果。
+ */
 impl<G: Group> Mul<G::Scalar> for Commitment<G> {
   type Output = Commitment<G>;
 
@@ -124,6 +133,7 @@ impl<G: Group> Mul<G::Scalar> for Commitment<G> {
   }
 }
 
+// commitment相加
 impl<'b, G: Group> AddAssign<&'b Commitment<G>> for Commitment<G> {
   fn add_assign(&mut self, other: &'b Commitment<G>) {
     let result = (self as &Commitment<G>).comm + other.comm;
@@ -131,6 +141,7 @@ impl<'b, G: Group> AddAssign<&'b Commitment<G>> for Commitment<G> {
   }
 }
 
+// commitment相加
 impl<'a, 'b, G: Group> Add<&'b Commitment<G>> for &'a Commitment<G> {
   type Output = Commitment<G>;
   fn add(self, other: &'b Commitment<G>) -> Commitment<G> {
@@ -257,6 +268,7 @@ impl<G: Group> CommitmentKeyExtTrait<G> for CommitmentKey<G> {
   }
 
   // combines the left and right halves of `self` using `w1` and `w2` as the weights
+  // 将commitmentKey 折叠
   fn fold(&self, w1: &G::Scalar, w2: &G::Scalar) -> CommitmentKey<G> {
     let w = vec![*w1, *w2];
     let (L, R) = self.split_at(self.ck.len() / 2);
@@ -290,6 +302,7 @@ impl<G: Group> CommitmentKeyExtTrait<G> for CommitmentKey<G> {
     }
   }
 
+  /// 将 &[CompressedCommitment<G>] 切片重新解释为一个 CommitmentKey<G> 对象。CompressedCommitment<G> 表示压缩的椭圆曲线点，这个函数首先将切片中的每个元素解压缩为 Commitment<G> 类型的值，再将这些点预处理为 G::Prepared 类型的值，最后将它们存储在一个 CommitmentKey<G> 对象中作为密钥 ck 的一部分，并返回该对象。
   /// reinterprets a vector of commitments as a set of generators
   fn reinterpret_commitments_as_ck(c: &[CompressedCommitment<G>]) -> Result<Self, NovaError> {
     let d = (0..c.len())

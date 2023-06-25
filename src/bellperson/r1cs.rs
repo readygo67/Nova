@@ -13,6 +13,7 @@ use bellperson::{Index, LinearCombination};
 use ff::PrimeField;
 
 /// `NovaWitness` provide a method for acquiring an `R1CSInstance` and `R1CSWitness` from implementers.
+/// 定义NovaWitness trait
 pub trait NovaWitness<G: Group> {
   /// Return an instance and witness, given a shape and ck.
   fn r1cs_instance_and_witness(
@@ -23,6 +24,7 @@ pub trait NovaWitness<G: Group> {
 }
 
 /// `NovaShape` provides methods for acquiring `R1CSShape` and `CommitmentKey` from implementers.
+/// 定义NovaShape Trait
 pub trait NovaShape<G: Group> {
   /// Return an appropriate `R1CSShape` and `CommitmentKey` structs.
   fn r1cs_shape(&self) -> (R1CSShape<G>, CommitmentKey<G>);
@@ -31,23 +33,25 @@ pub trait NovaShape<G: Group> {
 impl<G: Group> NovaWitness<G> for SatisfyingAssignment<G>
 where
   G::Scalar: PrimeField,
-{
+{ 
+  //从SatisfyingAssignment 获得r1cs的instance 和 witness
   fn r1cs_instance_and_witness(
     &self,
     shape: &R1CSShape<G>,
     ck: &CommitmentKey<G>,
   ) -> Result<(R1CSInstance<G>, R1CSWitness<G>), NovaError> {
-    let W = R1CSWitness::<G>::new(shape, &self.aux_assignment)?;
-    let X = &self.input_assignment[1..];
+
+    let W = R1CSWitness::<G>::new(shape, &self.aux_assignment)?;  //witness 
+    let X = &self.input_assignment[1..]; //input
 
     let comm_W = W.commit(ck);
 
-    let instance = R1CSInstance::<G>::new(shape, &comm_W, X)?;
+    let instance = R1CSInstance::<G>::new(shape, &comm_W, X)?; // instance = [ comm_W, 和X] 
 
     Ok((instance, W))
   }
 }
-
+// 将Nova 电路转换为R1CS电路
 impl<G: Group> NovaShape<G> for ShapeCS<G>
 where
   G::Scalar: PrimeField,
@@ -87,6 +91,7 @@ where
     (S, ck)
   }
 }
+
 
 fn add_constraint<S: PrimeField>(
   X: &mut (

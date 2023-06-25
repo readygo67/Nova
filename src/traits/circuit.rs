@@ -4,15 +4,19 @@ use core::marker::PhantomData;
 use ff::PrimeField;
 
 /// A helper trait for a step of the incremental computation (i.e., circuit for F)
+/// 定义 StepCircuit 的trait
+/// StepCircut对应论文中的F电路，需要自己实现StepCircuit 电路的逻辑
 pub trait StepCircuit<F: PrimeField>: Send + Sync + Clone {
   /// Return the the number of inputs or outputs of each step
   /// (this method is called only at circuit synthesis time)
   /// `synthesize` and `output` methods are expected to take as
   /// input a vector of size equal to arity and output a vector of size equal to arity  
+  /// 期望arity = max(input.len, output.len)
   fn arity(&self) -> usize;
 
   /// Sythesize the circuit for a computation step and return variable
   /// that corresponds to the output of the step z_{i+1}
+  ///，所以有F(z_{i}) =z_{i+1}
   fn synthesize<CS: ConstraintSystem<F>>(
     &self,
     cs: &mut CS,
@@ -24,6 +28,7 @@ pub trait StepCircuit<F: PrimeField>: Send + Sync + Clone {
 }
 
 /// A trivial step circuit that simply returns the input
+/// 
 #[derive(Clone, Debug, Default)]
 pub struct TrivialTestCircuit<F: PrimeField> {
   _p: PhantomData<F>,
@@ -36,13 +41,13 @@ where
   fn arity(&self) -> usize {
     1
   }
-
+  //对于一个Trivial电路，synthesize 只是将输出返回
   fn synthesize<CS: ConstraintSystem<F>>(
     &self,
     _cs: &mut CS,
     z: &[AllocatedNum<F>],
   ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
-    Ok(z.to_vec())
+    Ok(z.to_vec())  //trival 
   }
 
   fn output(&self, z: &[F]) -> Vec<F> {

@@ -171,6 +171,7 @@ impl<G: Group> R1CSShape<G> {
   }
 
   /// Checks if the Relaxed R1CS instance is satisfiable given a witness and its shape
+  /// 检查Relxed R1CS是否成立
   pub fn is_sat_relaxed(
     &self,
     ck: &CommitmentKey<G>,
@@ -210,7 +211,7 @@ impl<G: Group> R1CSShape<G> {
     }
   }
 
-  /// Checks if the R1CS instance is satisfiable given a witness and its shape
+  /// Checks if the R1CS instance is satisfiable given a witness and its shape 检查z=[slef.W, 1, self.X]是否满足R1CS
   pub fn is_sat(
     &self,
     ck: &CommitmentKey<G>,
@@ -228,7 +229,7 @@ impl<G: Group> R1CSShape<G> {
       assert_eq!(Bz.len(), self.num_cons);
       assert_eq!(Cz.len(), self.num_cons);
 
-      let res: usize = (0..self.num_cons)
+      let res: usize = (0..self.num_cons)  //针对每一个约束行，检查Az[i] * Bz[i] != u * Cz[i]
         .map(|i| usize::from(Az[i] * Bz[i] != Cz[i]))
         .sum();
 
@@ -247,6 +248,10 @@ impl<G: Group> R1CSShape<G> {
 
   /// A method to compute a commitment to the cross-term `T` given a
   /// Relaxed R1CS instance-witness pair and an R1CS instance-witness pair
+  /// Z1 = [W1, U1.u, U1.X]
+  /// Z2 = [W2, 1, U2.X]
+  /// T = AZ1 * BZ2 + AZ2 * BZ1 - U1.u * CZ2 - U2.u * CZ1 
+  /// comm_T = 「T」
   pub fn commit_T(
     &self,
     ck: &CommitmentKey<G>,
@@ -413,12 +418,17 @@ impl<G: Group> RelaxedR1CSWitness<G> {
     }
   }
 
+  /// 返回comm_W 和comm_E
   /// Commits to the witness using the supplied generators
   pub fn commit(&self, ck: &CommitmentKey<G>) -> (Commitment<G>, Commitment<G>) {
     (CE::<G>::commit(ck, &self.W), CE::<G>::commit(ck, &self.E))
   }
 
   /// Folds an incoming R1CSWitness into the current one
+  /// self =RelaxedR1CSWitness， W2 = R1CSWitness
+  /// W = W1 + W2 * r 
+  /// E = E1 + T * r 
+
   pub fn fold(
     &self,
     W2: &R1CSWitness<G>,
@@ -502,6 +512,12 @@ impl<G: Group> RelaxedR1CSInstance<G> {
   }
 
   /// Folds an incoming RelaxedR1CSInstance into the current one
+  /// self = RelaxedR1CSInstance，将R1CSInstance 折叠进来，形成新的 RelaxedR1CSInstance, 
+  /// R1CSInstance 的折叠在prover 和verifier都要做的
+  /// comm_E = comm_E_1 + comm_T * r   // 此处 comm_E_2 = 0
+  /// comm_W = comm_W_1 + comm_W_2 * r
+  /// X = X_1 + r * X_2
+  /// u = u1 + r //此处u2 = 1
   pub fn fold(
     &self,
     U2: &R1CSInstance<G>,
@@ -518,7 +534,7 @@ impl<G: Group> RelaxedR1CSInstance<G> {
       .zip(X2)
       .map(|(a, b)| *a + *r * *b)
       .collect::<Vec<G::Scalar>>();
-    let comm_W = *comm_W_1 + *comm_W_2 * *r;
+    let comm_W: <<G as Group>::CE as CommitmentEngineTrait<G>>::Commitment = *comm_W_1 + *comm_W_2 * *r;
     let comm_E = *comm_E_1 + *comm_T * *r;
     let u = *u1 + *r;
 
@@ -543,6 +559,7 @@ impl<G: Group> TranscriptReprTrait<G> for RelaxedR1CSInstance<G> {
   }
 }
 
+//将RelaxedR1CSInstance的信息吸收到oracle状态机中去
 impl<G: Group> AbsorbInROTrait<G> for RelaxedR1CSInstance<G> {
   fn absorb_in_ro(&self, ro: &mut G::RO) {
     self.comm_W.absorb_in_ro(ro);

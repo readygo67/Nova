@@ -23,9 +23,10 @@ use ff::Field;
 
 /// An Allocated R1CS Instance
 #[derive(Clone)]
+//AllocatedR1CSInstance 的作用是什么？
 pub struct AllocatedR1CSInstance<G: Group> {
   pub(crate) W: AllocatedPoint<G>,
-  pub(crate) X0: AllocatedNum<G::Base>,
+  pub(crate) X0: AllocatedNum<G::Base>, //保存什么hash？
   pub(crate) X1: AllocatedNum<G::Base>,
 }
 
@@ -64,11 +65,21 @@ impl<G: Group> AllocatedR1CSInstance<G> {
 }
 
 /// An Allocated Relaxed R1CS Instance
+//
+/* TODO(keep)
+ RelaxedR1CSInstance 和 AllocatedRelaxedR1CSInstance 有什么关系？
+pub struct RelaxedR1CSInstance<G: Group> {
+  pub(crate) comm_W: Commitment<G>,
+  pub(crate) comm_E: Commitment<G>,
+  pub(crate) X: Vec<G::Scalar>,
+  pub(crate) u: G::Scalar,
+}
+ */
 pub struct AllocatedRelaxedR1CSInstance<G: Group> {
-  pub(crate) W: AllocatedPoint<G>,
-  pub(crate) E: AllocatedPoint<G>,
-  pub(crate) u: AllocatedNum<G::Base>,
-  pub(crate) X0: BigNat<G::Base>,
+  pub(crate) W: AllocatedPoint<G>, //comm_W的坐标
+  pub(crate) E: AllocatedPoint<G>, //comm_E的坐标
+  pub(crate) u: AllocatedNum<G::Base>, //将u转成base
+  pub(crate) X0: BigNat<G::Base>,  //X[0]
   pub(crate) X1: BigNat<G::Base>,
 }
 
@@ -84,7 +95,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
       cs.namespace(|| "allocate W"),
       inst
         .get()
-        .map_or(None, |inst| Some(inst.comm_W.to_coordinates())),
+        .map_or(None, |inst| Some(inst.comm_W.to_coordinates())), 
     )?;
 
     let E = AllocatedPoint::alloc(
@@ -102,6 +113,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     )?;
 
     // Allocate X0 and X1. If the input instance is None, then allocate default values 0.
+    // 
     let X0 = BigNat::alloc_from_nat(
       cs.namespace(|| "allocate X[0]"),
       || Ok(f_to_nat(&inst.map_or(G::Scalar::ZERO, |inst| inst.X[0]))),
@@ -120,7 +132,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
   }
 
   /// Allocates the hardcoded default RelaxedR1CSInstance in the circuit.
-  /// W = E = 0, u = 1, X0 = X1 = 0
+  /// W = E = 0, u = 0, X0 = X1 = 0
   pub fn default<CS: ConstraintSystem<<G as Group>::Base>>(
     mut cs: CS,
     limb_width: usize,
@@ -149,9 +161,11 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
   }
 
   /// Allocates the R1CS Instance as a RelaxedR1CSInstance in the circuit.
+  /// coAllocatedRelaxedR1CSInstance
+  /// 从 AllocatedR1CSInstance 构建AllocatedRelaxedR1CSInstance， copy W，X0，X1，
   /// E = 0, u = 1
   pub fn from_r1cs_instance<CS: ConstraintSystem<<G as Group>::Base>>(
-    mut cs: CS,
+      mut cs: CS,
     inst: AllocatedR1CSInstance<G>,
     limb_width: usize,
     n_limbs: usize,
@@ -233,6 +247,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
   }
 
   /// Folds self with a relaxed r1cs instance and returns the result
+  /// AllocatedRelaxedR1CSInstance 把AllocatedR1CSInstance 折叠进来
   #[allow(clippy::too_many_arguments)]
   pub fn fold_with_r1cs<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
@@ -252,8 +267,9 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     ro.absorb(T.x.clone());
     ro.absorb(T.y.clone());
     ro.absorb(T.is_infinity.clone());
+    // 计算hash
     let r_bits = ro.squeeze(cs.namespace(|| "r bits"), NUM_CHALLENGE_BITS)?;
-    let r = le_bits_to_num(cs.namespace(|| "r"), &r_bits)?;
+    let r = le_bits_to_num(cs.namespace(|| "r"), &r_bits)?; //转成数值
 
     // W_fold = self.W + r * u.W
     let rW = u.W.scalar_mul(cs.namespace(|| "r * u.W"), &r_bits)?;
@@ -267,6 +283,16 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     let u_fold = AllocatedNum::alloc(cs.namespace(|| "u_fold"), || {
       Ok(*self.u.get_value().get()? + r.get_value().get()?)
     })?;
+
+    /// U.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
+    /// U.comm_W = U1.comm_W + U2.comm_W 
+    /// U.X = U1.X + r * U2.X   //
+    //对应nifs.prove中如下操作
+    /// U.u = U1.u + r * U2.u //U2.u = 1
+    /// W.W = W1.W + W2.W * r
+    /// W.E = W1.E + T * r 
+    
+    //约束 0 * 0 = u_fold = self.u + r 
     cs.enforce(
       || "Check u_fold",
       |lc| lc,
@@ -330,7 +356,8 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     })
   }
 
-  /// If the condition is true then returns this otherwise it returns the other
+  /// If the condition is true then returns this, else it returns the other
+  /// 返回this的[W, E, u, X0, X1] 或者是
   pub fn conditionally_select<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
     mut cs: CS,

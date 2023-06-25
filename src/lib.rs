@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 // private modules
+// 定义了私有模块
 mod bellperson;
 mod circuit;
 mod constants;
@@ -19,6 +20,7 @@ mod nifs;
 mod r1cs;
 
 // public modules
+//定义公共模块 
 pub mod errors;
 pub mod gadgets;
 pub mod provider;
@@ -75,6 +77,7 @@ where
   _p_c2: PhantomData<C2>,
 }
 
+//定义PublicParams 结构体的方法
 impl<G1, G2, C1, C2> PublicParams<G1, G2, C1, C2>
 where
   G1: Group<Base = <G2 as Group>::Scalar>,
@@ -82,9 +85,9 @@ where
   C1: StepCircuit<G1::Scalar>,
   C2: StepCircuit<G2::Scalar>,
 {
-  /// Create a new `PublicParams`
+  /// Create a new `PublicParams`, 通过 C1, C2 构建PublicParams 
   pub fn setup(c_primary: C1, c_secondary: C2) -> Self {
-    let augmented_circuit_params_primary =
+    let augmented_circuit_params_primary   =
       NovaAugmentedCircuitParams::new(BN_LIMB_WIDTH, BN_N_LIMBS, true);
     let augmented_circuit_params_secondary =
       NovaAugmentedCircuitParams::new(BN_LIMB_WIDTH, BN_N_LIMBS, false);
@@ -92,7 +95,7 @@ where
     let ro_consts_primary: ROConstants<G1> = ROConstants::<G1>::new();
     let ro_consts_secondary: ROConstants<G2> = ROConstants::<G2>::new();
 
-    let F_arity_primary = c_primary.arity();
+    let F_arity_primary = c_primary.arity();  //primary 电路的max(input, output)
     let F_arity_secondary = c_secondary.arity();
 
     // ro_consts_circuit_primary are parameterized by G2 because the type alias uses G2::Base = G1::Scalar
@@ -100,17 +103,21 @@ where
     let ro_consts_circuit_secondary: ROConstantsCircuit<G1> = ROConstantsCircuit::<G1>::new();
 
     // Initialize ck for the primary
+    // primary电路 由 {NovaAugmentedCircuitParams, input, primary电路，primary_RandomOracle }组成
     let circuit_primary: NovaAugmentedCircuit<G2, C1> = NovaAugmentedCircuit::new(
       augmented_circuit_params_primary.clone(),
       None,
       c_primary,
       ro_consts_circuit_primary.clone(),
     );
+
+    //合成一个inputs为空的电路cs, 未来需要向cs添加约束
     let mut cs: ShapeCS<G1> = ShapeCS::new();
     let _ = circuit_primary.synthesize(&mut cs);
     let (r1cs_shape_primary, ck_primary) = cs.r1cs_shape();
 
     // Initialize ck for the secondary
+     // primary电路 由 {NovaAugmentedCircuitParams, input, secodary电路，secondary_RandomOracle }组成
     let circuit_secondary: NovaAugmentedCircuit<G1, C2> = NovaAugmentedCircuit::new(
       augmented_circuit_params_secondary.clone(),
       None,
@@ -121,13 +128,16 @@ where
     let _ = circuit_secondary.synthesize(&mut cs);
     let (r1cs_shape_secondary, ck_secondary) = cs.r1cs_shape();
 
+      //获得电路的public Params 
     let mut pp = Self {
-      F_arity_primary,
-      F_arity_secondary,
-      ro_consts_primary,
+      F_arity_primary,  //primary 电路的max(input, output)
+      F_arity_secondary, //primary 电路的max(input, output)
+      
+      ro_consts_primary, //primary 电路的ro consts
       ro_consts_circuit_primary,
-      ck_primary,
-      r1cs_shape_primary,
+      ck_primary,  
+      r1cs_shape_primary, 
+
       ro_consts_secondary,
       ro_consts_circuit_secondary,
       ck_secondary,
@@ -139,8 +149,8 @@ where
       _p_c2: Default::default(),
     };
 
-    // set the digest in pp
-    pp.digest = compute_digest::<G1, PublicParams<G1, G2, C1, C2>>(&pp);
+    // set the digest in pp，填入public params 的hash
+    pp.digest = compute_digest::<G1, PublicParams<G1, G2, C1, C2>>(&pp); //
 
     pp
   }
@@ -172,15 +182,15 @@ where
   C1: StepCircuit<G1::Scalar>,
   C2: StepCircuit<G2::Scalar>,
 {
-  r_W_primary: RelaxedR1CSWitness<G1>,
-  r_U_primary: RelaxedR1CSInstance<G1>,
-  r_W_secondary: RelaxedR1CSWitness<G2>,
-  r_U_secondary: RelaxedR1CSInstance<G2>,
-  l_w_secondary: R1CSWitness<G2>,
-  l_u_secondary: R1CSInstance<G2>,
-  i: usize,
-  zi_primary: Vec<G1::Scalar>,
-  zi_secondary: Vec<G2::Scalar>,
+  r_W_primary: RelaxedR1CSWitness<G1>,  //Relaxed Primary witness 
+  r_U_primary: RelaxedR1CSInstance<G1>,  //Relaxed Primary instance 
+  r_W_secondary: RelaxedR1CSWitness<G2>, //Relaxed Secondary witness
+  r_U_secondary: RelaxedR1CSInstance<G2>, //Relaxed Secondary instance
+  l_w_secondary: R1CSWitness<G2>,         //secondary witness
+  l_u_secondary: R1CSInstance<G2>,        //secondary instance
+  i: usize,                               //i,标识第几步
+  zi_primary: Vec<G1::Scalar>,            //primary 电路的zi 
+  zi_secondary: Vec<G2::Scalar>,          //secondary 电路的zi
   _p_c1: PhantomData<C1>,
   _p_c2: PhantomData<C2>,
 }
@@ -193,6 +203,7 @@ where
   C2: StepCircuit<G2::Scalar>,
 {
   /// Create new instance of recursive SNARK
+  /// 构建RecursiveSNARK，并完成i=0的primary/secondary电路的合成。
   pub fn new(
     pp: &PublicParams<G1, G2, C1, C2>,
     c_primary: &C1,
@@ -201,14 +212,15 @@ where
     z0_secondary: Vec<G2::Scalar>,
   ) -> Self {
     // Expected outputs of the two circuits
-    let zi_primary = c_primary.output(&z0_primary);
-    let zi_secondary = c_secondary.output(&z0_secondary);
+    let zi_primary = c_primary.output(&z0_primary);  //如果c_primary的电路是y= x^3+x+5, z0_primary[0] = 1, 则返回的值是7，
+    let zi_secondary = c_secondary.output(&z0_secondary); //如果c_secondary的电路是trivialCircuit, 则返回的是z0_secondary[0].
 
     // base case for the primary
     let mut cs_primary: SatisfyingAssignment<G1> = SatisfyingAssignment::new();
+    //构建 NovaAugmentedCircuit 的输入
     let inputs_primary: NovaAugmentedCircuitInputs<G2> = NovaAugmentedCircuitInputs::new(
-      scalar_as_base::<G1>(pp.digest),
-      G1::Scalar::ZERO,
+      scalar_as_base::<G1>(pp.digest), //直接将 digest 转换成G1作为params 
+      G1::Scalar::ZERO,  //i=0
       z0_primary,
       None,
       None,
@@ -216,13 +228,17 @@ where
       None,
     );
 
+    //构建 NovaAugmentedCircuit 电路
     let circuit_primary: NovaAugmentedCircuit<G2, C1> = NovaAugmentedCircuit::new(
       pp.augmented_circuit_params_primary.clone(),
       Some(inputs_primary),
       c_primary.clone(),
       pp.ro_consts_circuit_primary.clone(),
     );
+
+    //合成到cs_primary上
     let _ = circuit_primary.synthesize(&mut cs_primary);
+    //获取u_primary 和 w_primary
     let (u_primary, w_primary) = cs_primary
       .r1cs_instance_and_witness(&pp.r1cs_shape_primary, &pp.ck_primary)
       .map_err(|_e| NovaError::UnSat)
@@ -232,11 +248,11 @@ where
     let mut cs_secondary: SatisfyingAssignment<G2> = SatisfyingAssignment::new();
     let inputs_secondary: NovaAugmentedCircuitInputs<G1> = NovaAugmentedCircuitInputs::new(
       pp.digest,
-      G2::Scalar::ZERO,
+      G2::Scalar::ZERO, //i=0
       z0_secondary,
       None,
       None,
-      Some(u_primary.clone()),
+      Some(u_primary.clone()),   //circuit_secondary的u = u_primary 
       None,
     );
     let circuit_secondary: NovaAugmentedCircuit<G1, C2> = NovaAugmentedCircuit::new(
@@ -252,7 +268,7 @@ where
       .expect("Nova error unsat");
 
     // IVC proof for the primary circuit
-    let l_w_primary = w_primary;
+    let l_w_primary: R1CSWitness<G1> = w_primary;
     let l_u_primary = u_primary;
     let r_W_primary = RelaxedR1CSWitness::from_r1cs_witness(&pp.r1cs_shape_primary, &l_w_primary);
     let r_U_primary =
@@ -270,7 +286,7 @@ where
     }
 
     Self {
-      r_W_primary,
+      r_W_primary,  //Relaxed R1CSWitness
       r_U_primary,
       r_W_secondary,
       r_U_secondary,
@@ -305,6 +321,7 @@ where
     }
 
     // fold the secondary circuit's instance
+    // 更新nifs_secondary 的comm_T, 产生新的 r_U_secondary 和 r_W_secondary
     let (nifs_secondary, (r_U_secondary, r_W_secondary)) = NIFS::prove(
       &pp.ck_secondary,
       &pp.ro_consts_secondary,
@@ -764,6 +781,7 @@ type Commitment<G> = <<G as Group>::CE as CommitmentEngineTrait<G>>::Commitment;
 type CompressedCommitment<G> = <<<G as Group>::CE as CommitmentEngineTrait<G>>::Commitment as CommitmentTrait<G>>::CompressedCommitment;
 type CE<G> = <G as Group>::CE;
 
+//将publicParam 
 fn compute_digest<G: Group, T: Serialize>(o: &T) -> G::Scalar {
   // obtain a vector of bytes representing public parameters
   let bytes = bincode::serialize(o).unwrap();
@@ -820,19 +838,21 @@ mod tests {
     fn arity(&self) -> usize {
       1
     }
-
+    //定义测试用的StepCircuit的synthesize 方法， 
+    // 在x.square 中会分配新的变量，并增加约束， 整体只需要对整体表达式再做一次"y = x^3 + x + 5"的约束，
     fn synthesize<CS: ConstraintSystem<F>>(
       &self,
       cs: &mut CS,
       z: &[AllocatedNum<F>],
     ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
       // Consider a cubic equation: `x^3 + x + 5 = y`, where `x` and `y` are respectively the input and output.
-      let x = &z[0];
+     
+      let x = &z[0]; //注意这里的z似乎只是instance，
       let x_sq = x.square(cs.namespace(|| "x_sq"))?;
       let x_cu = x_sq.mul(cs.namespace(|| "x_cu"), x)?;
       let y = AllocatedNum::alloc(cs.namespace(|| "y"), || {
         Ok(x_cu.get_value().unwrap() + x.get_value().unwrap() + F::from(5u64))
-      })?;
+      })?; //y = x^3 + x + 5
 
       cs.enforce(
         || "y = x^3 + x + 5",

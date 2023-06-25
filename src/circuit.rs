@@ -39,6 +39,7 @@ pub struct NovaAugmentedCircuitParams {
   is_primary_circuit: bool, // A boolean indicating if this is the primary circuit
 }
 
+//NovaAugmentedCircuitParams 的关联函数
 impl NovaAugmentedCircuitParams {
   pub fn new(limb_width: usize, n_limbs: usize, is_primary_circuit: bool) -> Self {
     Self {
@@ -51,24 +52,26 @@ impl NovaAugmentedCircuitParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
+//定义NovaAugmentedCircuitInputs结构体
 pub struct NovaAugmentedCircuitInputs<G: Group> {
-  params: G::Scalar, // Hash(Shape of u2, Gens for u2). Needed for computing the challenge.
-  i: G::Base,
+  params: G::Scalar, // Hash(Shape of u2, Gens for u2). Needed for computing the challenge.hash值
+  i: G::Base, //说明是第几个F电路
   z0: Vec<G::Base>,
   zi: Option<Vec<G::Base>>,
-  U: Option<RelaxedR1CSInstance<G>>,
-  u: Option<R1CSInstance<G>>,
+  U: Option<RelaxedR1CSInstance<G>>,  //U 是包含{comm_W, comm_W, X, u} 的Relaxed R1CS instance
+  u: Option<R1CSInstance<G>>,     //u 是包含{comm_W, X} 的R1CS instance
   T: Option<Commitment<G>>,
 }
 
+//实现NovaAugmentedCircuitInputs 的方法
 impl<G: Group> NovaAugmentedCircuitInputs<G> {
   /// Create new inputs/witness for the verification circuit
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     params: G::Scalar,
     i: G::Base,
-    z0: Vec<G::Base>,
-    zi: Option<Vec<G::Base>>,
+    z0: Vec<G::Base>,  //这是vector
+    zi: Option<Vec<G::Base>>,  //这是vector
     U: Option<RelaxedR1CSInstance<G>>,
     u: Option<R1CSInstance<G>>,
     T: Option<Commitment<G>>,
@@ -87,6 +90,11 @@ impl<G: Group> NovaAugmentedCircuitInputs<G> {
 
 /// The augmented circuit F' in Nova that includes a step circuit F
 /// and the circuit for the verifier in Nova's non-interactive folding scheme
+/// NovaAugmentedCircuit 由几个部分组成
+/// NovaAugmentedCircuitParams：parameter, 定义了输入的位宽，输入个数，以及是否为主circuit
+/// ROConstantsCircuit:定义了Random Oracle
+/// NovaAugmentedCircuitInputs：定义了输入参数
+/// SC: 定义了StepCircuit
 pub struct NovaAugmentedCircuit<G: Group, SC: StepCircuit<G::Base>> {
   params: NovaAugmentedCircuitParams,
   ro_consts: ROConstantsCircuit<G>,
@@ -111,6 +119,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
   }
 
   /// Allocate all witnesses and return
+  /// 从ConstraintSystem 中获取NovaAugmentedCircuitInputs结果, 感觉应该叫做alloc_instanc似乎更好？
   fn alloc_witness<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
     mut cs: CS,
@@ -137,7 +146,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
     let i = AllocatedNum::alloc(cs.namespace(|| "i"), || Ok(self.inputs.get()?.i))?;
 
     // Allocate z0
-    let z_0 = (0..arity)
+    let z_0: Vec<AllocatedNum<<G as Group>::Base>> = (0..arity)
       .map(|i| {
         AllocatedNum::alloc(cs.namespace(|| format!("z0_{i}")), || {
           Ok(self.inputs.get()?.z0[i])
@@ -185,6 +194,8 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
   }
 
   /// Synthesizes base case and returns the new relaxed R1CSInstance
+  /// The primary circuit just returns the default R1CS instance
+  /// The secondary circuit returns the incoming R1CS instance
   fn synthesize_base_case<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
     mut cs: CS,
@@ -225,6 +236,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
     arity: usize,
   ) -> Result<(AllocatedRelaxedR1CSInstance<G>, AllocatedBit), SynthesisError> {
     // Check that u.x[0] = Hash(params, U, i, z0, zi)
+    // 创建一个ROCircuit的实例来计算哈希值。
     let mut ro = G::ROCircuit::new(
       self.ro_consts.clone(),
       NUM_FE_WITHOUT_IO_FOR_CRHF + 2 * arity,
@@ -239,13 +251,15 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
     }
     U.absorb_in_ro(cs.namespace(|| "absorb U"), &mut ro)?;
 
+    //hash = Hash(params, i, z0, zi, U)
     let hash_bits = ro.squeeze(cs.namespace(|| "Input hash"), NUM_HASH_BITS)?;
-    let hash = le_bits_to_num(cs.namespace(|| "bits to hash"), &hash_bits)?;
-    let check_pass = alloc_num_equals(
+    // 将哈希值的比特字符串转换为一个数值
+    let hash = le_bits_to_num(cs.namespace(|| "bits to hash"), &hash_bits)?; 
+    let check_pass: AllocatedBit = alloc_num_equals(  //
       cs.namespace(|| "check consistency of u.X[0] with H(params, U, i, z0, zi)"),
       &u.X0,
       &hash,
-    )?;
+    )?; //hash() = u.X0
 
     // Run NIFS Verifier
     let U_fold = U.fold_with_r1cs(
@@ -277,9 +291,10 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
 
     // Compute variable indicating if this is the base case
     let zero = alloc_zero(cs.namespace(|| "zero"))?;
-    let is_base_case = alloc_num_equals(cs.namespace(|| "Check if base case"), &i.clone(), &zero)?;
+    let is_base_case = alloc_num_equals(cs.namespace(|| "Check if base case"), &i.clone(), &zero)?; //当i = 0时is_base_case = true
 
     // Synthesize the circuit for the base case and get the new running instance
+    // 对于第一个u
     let Unew_base = self.synthesize_base_case(cs.namespace(|| "base case"), u.clone())?;
 
     // Synthesize the circuit for the non-base case and get the new running
@@ -302,6 +317,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
       &check_non_base_pass,
       &is_base_case,
     )?;
+
     cs.enforce(
       || "check_non_base_pass nor base_case = false",
       |lc| lc + should_be_false.get_variable(),
@@ -325,9 +341,10 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
       |lc| lc,
       |lc| lc,
       |lc| lc + i_new.get_variable() - CS::one() - i.get_variable(),
-    );
+    ); // i_new 
 
     // Compute z_{i+1}
+    // 如果是第一次执行（is_base_case == true), z_input = z0, 否则z_input = z_i 
     let z_input = conditionally_select_vec(
       cs.namespace(|| "select input to F"),
       &z_0,
@@ -335,6 +352,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
       &Boolean::from(is_base_case),
     )?;
 
+    // z_{i+1} = F(z_input)
     let z_next = self
       .step_circuit
       .synthesize(&mut cs.namespace(|| "F"), &z_input)?;
@@ -346,6 +364,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
     }
 
     // Compute the new hash H(params, Unew, i+1, z0, z_{i+1})
+    // h{i+1} = hash(params, i+1, z0, z_{i+1}, Unew)
     let mut ro = G::ROCircuit::new(self.ro_consts, NUM_FE_WITHOUT_IO_FOR_CRHF + 2 * arity);
     ro.absorb(params);
     ro.absorb(i_new.clone());
@@ -362,7 +381,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
     // Outputs the computed hash and u.X[1] that corresponds to the hash of the other circuit
     u.X1
       .inputize(cs.namespace(|| "Output unmodified hash of the other circuit"))?;
-    hash.inputize(cs.namespace(|| "output new hash of this circuit"))?;
+    hash.inputize(cs.namespace(|| "output new hash of this circuit"))?; 
 
     Ok(())
   }

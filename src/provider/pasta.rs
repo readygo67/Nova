@@ -48,6 +48,7 @@ impl VestaCompressedElementWrapper {
   }
 }
 
+// 用于为一个特定的椭圆曲线实现一组密钥交换、签名和验证的 trait。
 macro_rules! impl_traits {
   (
     $name:ident,
@@ -66,6 +67,7 @@ macro_rules! impl_traits {
       type TE = Keccak256Transcript<Self>;
       type CE = CommitmentEngine<Self>;
 
+     //#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))] 表示只有在目标平台为 x86_64 或者 aarch64 时才会编译下面的函数或代码块。也就是说，这个代码段的实现仅适用于这两个特定的处理器平台。如果目标平台不是 x86_64 或 aarch64，那么对应的函数或代码块将不会被编译。
       #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
       fn vartime_multiscalar_mul(
         scalars: &[Self::Scalar],
@@ -78,6 +80,7 @@ macro_rules! impl_traits {
         }
       }
 
+      // 对于不满足 target_arch="x86_64", target_arch = "aarch64"的处理器适用
       #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
       fn vartime_multiscalar_mul(
         scalars: &[Self::Scalar],
@@ -86,6 +89,7 @@ macro_rules! impl_traits {
         cpu_best_multiexp(scalars, bases)
       }
 
+      //将坐标点从Projection（x,y,z,t） 转成 Affine坐标（x，y）
       fn preprocessed(&self) -> Self::PreprocessedGroupElement {
         self.to_affine()
       }
@@ -94,6 +98,16 @@ macro_rules! impl_traits {
         $name_compressed::new(self.to_bytes())
       }
 
+      // 随机产生commitmentKey 
+      /*
+    根据输入的label和数量n，生成相应数量的预处理群元素。具体实现过程如下：
+    创建一个Shake256哈希函数实例，并将label输入到哈希函数中。
+    从哈希函数中获取一个reader，用来生成随机字节序列。
+    使用 循环n次，从reader中读取32字节随机字节序列，并将它们存储在uniform_bytes_vec中。
+    使用给定的哈希函数将每个随机字节序列映射到椭圆曲线上，生成椭圆曲线上的一个点ck_proj。
+    使用并行迭代器将所有ck_proj点批量归一化为仿射坐标系下的点ck，最后返回ck。如果点的数量大于当前计算机的线程数，则将点的处理分解为多个线程来处理，每个线程处理一部分点。
+    总体而言，这段代码主要实现了批量生成椭圆曲线上的点，并将这些点统一归一化，从而优化后续计算流程的性能。
+       */
       fn from_label(label: &'static [u8], n: usize) -> Vec<Self::PreprocessedGroupElement> {
         let mut shake = Shake256::default();
         shake.input(label);
@@ -144,7 +158,7 @@ macro_rules! impl_traits {
           ck
         }
       }
-
+      
       fn to_coordinates(&self) -> (Self::Base, Self::Base, bool) {
         let coordinates = self.to_affine().coordinates();
         if coordinates.is_some().unwrap_u8() == 1 {
@@ -206,6 +220,7 @@ impl<G: Group> TranscriptReprTrait<G> for pallas::Scalar {
   }
 }
 
+//pallas曲线
 impl_traits!(
   pallas,
   PallasCompressedElementWrapper,

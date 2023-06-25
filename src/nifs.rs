@@ -32,9 +32,20 @@ impl<G: Group> NIFS<G> {
   /// a folded Relaxed R1CS instance-witness tuple `(U, W)` of the same shape `shape`,
   /// with the guarantee that the folded witness `W` satisfies the folded instance `U`
   /// if and only if `W1` satisfies `U1` and `W2` satisfies `U2`.
+  /// 和论文中不一样，这里的Prove把 R1CS instance-witness tuple `(U2, W2)` 吸收到 Relaxed R1CS instance-witness  `(U1, W1)` 中来，产出Relaxed R1CS instance-witness  `(U, W)`
+  
+  /// U.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
+  /// U.comm_W = U1.comm_W + U2.comm_W 
+  /// U.X = U1.X + r * U2.X   //
+  /// U.u = U1.u + r * U2.u //U2.u = 1
+  
+
+  /// W.W = W1.W + W2.W * r
+  /// W.E = W1.E + T * r 
+  ///  不仅返回了(U,W) 还更新了电路本身的comm_T.
   #[allow(clippy::too_many_arguments)]
-  pub fn prove(
-    ck: &CommitmentKey<G>,
+    pub fn prove(
+    ck: &CommitmentKey<G>, 
     ro_consts: &ROConstants<G>,
     pp_digest: &G::Scalar,
     S: &R1CSShape<G>,
@@ -54,6 +65,7 @@ impl<G: Group> NIFS<G> {
     U2.absorb_in_ro(&mut ro);
 
     // compute a commitment to the cross-term
+    // 计算T 和 comm_T 
     let (T, comm_T) = S.commit_T(ck, U1, W1, U2, W2)?;
 
     // append `comm_T` to the transcript and obtain a challenge
@@ -63,10 +75,16 @@ impl<G: Group> NIFS<G> {
     let r = ro.squeeze(NUM_CHALLENGE_BITS);
 
     // fold the instance using `r` and `comm_T`
-    let U = U1.fold(U2, &comm_T, &r)?;
+    // U.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
+    // U.comm_W = U1.comm_W + U2.comm_W 
+    // U.X = U1.X + r * U2.X   //
+    // U.u = U1.u + r * U2.u //U2.u = 1
+    let U: RelaxedR1CSInstance<G> = U1.fold(U2, &comm_T, &r)?;
 
     // fold the witness using `r` and `T`
-    let W = W1.fold(W2, &T, &r)?;
+    // W.W = W1.W + W2.W * r
+    // W.E = W1.E + T * r 
+    let W: RelaxedR1CSWitness<G> = W1.fold(W2, &T, &r)?;
 
     // return the folded instance and witness
     Ok((
@@ -83,6 +101,7 @@ impl<G: Group> NIFS<G> {
   /// and outputs a folded instance `U` with the same shape,
   /// with the guarantee that the folded instance `U`
   /// if and only if `U1` and `U2` are satisfiable.
+  /// 这个函数是verifier build RelaxedR1CS instance 
   pub fn verify(
     &self,
     ro_consts: &ROConstants<G>,
@@ -225,7 +244,7 @@ mod tests {
   ) where
     G: Group,
   {
-    // produce a default running instance
+    // produce a default running instance, 产生running instance
     let mut r_W = RelaxedR1CSWitness::default(shape);
     let mut r_U = RelaxedR1CSInstance::default(ck, shape);
 
@@ -235,11 +254,12 @@ mod tests {
     let (nifs, (_U, W)) = res.unwrap();
 
     // verify the step SNARK with U1 as the first incoming instance
+    //verifer build relaxedR1CSInstance
     let res = nifs.verify(ro_consts, pp_digest, &r_U, U1);
     assert!(res.is_ok());
     let U = res.unwrap();
 
-    assert_eq!(U, _U);
+    assert_eq!(U, _U);  //判断prover 构建的relaxedR1CSInstance 和verifier 构建的构建的relaxedR1CSInstance 是否相同
 
     // update the running witness and instance
     r_W = W;
@@ -265,6 +285,7 @@ mod tests {
     assert!(shape.is_sat_relaxed(ck, &r_U, &r_W).is_ok());
   }
 
+
   fn test_tiny_r1cs_with<G: Group>() {
     let one = <G::Scalar as Field>::ONE;
     let (num_cons, num_vars, num_io, A, B, C) = {
@@ -278,6 +299,28 @@ mod tests {
       // `Z0 * I0 - Z1 = 0`
       // `(Z1 + I0) * 1 - Z2 = 0`
       // `(Z2 + 5) * 1 - I1 = 0`
+
+      /*   
+      
+          Z0  Z1  Z2  1  I0  I1 
+
+          [ 0  0  0  0  1  0]   //I0
+      A=  [ 1  0  0  0  0  0]   //Z0 
+          [ 0  1  0  0  1  0]   //Z1+ I0 
+          [ 0  0  1  0  5  0]   //Z2+ I0 
+
+          [ 0  0  0  0  1  0]   //I0
+      B = [ 0  0  0  0  1  0]   //I0
+          [ 0  0  0  1  0  0]   //1
+          [ 0  0  0  1  0  0]   //1
+
+
+           [ 1  0  0  0  0  0]  //Z0
+      C =  [ 0  1  0  0  0  0]
+           [ 0  0  1  0  0  0]   //Z2
+           [ 0  0  0  0  0  1]   //I1
+
+       */
 
       // Relaxed R1CS is a set of three sparse matrices (A B C), where there is a row for every
       // constraint and a column for every entry in z = (vars, u, inputs)
@@ -328,16 +371,21 @@ mod tests {
     let ro_consts =
       <<G as Group>::RO as ROTrait<<G as Group>::Base, <G as Group>::Scalar>>::Constants::new();
 
+    //随机产生两组满足R1CS的assignment, 例如
+    // Z0  Z1  Z2  1  I0  I1 
+    // [ 1  1  2   1  1  5] 
+    // [ 4  8  10  1  2  15]  
+
     let rand_inst_witness_generator =
       |ck: &CommitmentKey<G>, I: &G::Scalar| -> (G::Scalar, R1CSInstance<G>, R1CSWitness<G>) {
-        let i0 = *I;
+        let i0 = *I; //
 
         // compute a satisfying (vars, X) tuple
         let (O, vars, X) = {
           let z0 = i0 * i0; // constraint 0
           let z1 = i0 * z0; // constraint 1
           let z2 = z1 + i0; // constraint 2
-          let i1 = z2 + one + one + one + one + one; // constraint 3
+          let i1 = z2 + one + one + one + one + one; // constraint 5
 
           // store the witness and IO for the instance
           let W = vec![z0, z1, z2];
@@ -350,6 +398,7 @@ mod tests {
           assert!(res.is_ok());
           res.unwrap()
         };
+
         let U = {
           let comm_W = W.commit(ck);
           let res = R1CSInstance::new(&S, &comm_W, &X);
@@ -385,4 +434,157 @@ mod tests {
   fn test_tiny_r1cs() {
     test_tiny_r1cs_with::<pasta_curves::pallas::Point>();
   }
+
+
+  fn test_tiny_r1cs_with_deterministic<G: Group>() {
+    let one = <G::Scalar as Field>::ONE;
+    let (num_cons, num_vars, num_io, A, B, C) = {
+      let num_cons = 4;
+      let num_vars = 3;
+      let num_io = 2;
+
+      // Consider a cubic equation: `x^3 + x + 5 = y`, where `x` and `y` are respectively the input and output.
+      // The R1CS for this problem consists of the following constraints:
+      // `I0 * I0 - Z0 = 0`
+      // `Z0 * I0 - Z1 = 0`
+      // `(Z1 + I0) * 1 - Z2 = 0`
+      // `(Z2 + 5) * 1 - I1 = 0`
+
+      /*   
+      
+          Z0  Z1  Z2  1  I0  I1 
+
+          [ 0  0  0  0  1  0]   //I0
+      A=  [ 1  0  0  0  0  0]   //Z0 
+          [ 0  1  0  0  1  0]   //Z1+ I0 
+          [ 0  0  1  0  5  0]   //Z2+ I0 
+
+          [ 0  0  0  0  1  0]   //I0
+      B = [ 0  0  0  0  1  0]   //I0
+          [ 0  0  0  1  0  0]   //1
+          [ 0  0  0  1  0  0]   //1
+
+
+           [ 1  0  0  0  0  0]  //Z0
+      C =  [ 0  1  0  0  0  0]
+           [ 0  0  1  0  0  0]   //Z2
+           [ 0  0  0  0  0  1]   //I1
+
+       */
+
+      // Relaxed R1CS is a set of three sparse matrices (A B C), where there is a row for every
+      // constraint and a column for every entry in z = (vars, u, inputs)
+      // An R1CS instance is satisfiable iff:
+      // Az \circ Bz = u \cdot Cz + E, where z = (vars, 1, inputs)
+      let mut A: Vec<(usize, usize, G::Scalar)> = Vec::new();
+      let mut B: Vec<(usize, usize, G::Scalar)> = Vec::new();
+      let mut C: Vec<(usize, usize, G::Scalar)> = Vec::new();
+
+      // constraint 0 entries in (A,B,C)
+      // `I0 * I0 - Z0 = 0`
+      A.push((0, num_vars + 1, one));
+      B.push((0, num_vars + 1, one));
+      C.push((0, 0, one));
+
+      // constraint 1 entries in (A,B,C)
+      // `Z0 * I0 - Z1 = 0`
+      A.push((1, 0, one));
+      B.push((1, num_vars + 1, one));
+      C.push((1, 1, one));
+
+      // constraint 2 entries in (A,B,C)
+      // `(Z1 + I0) * 1 - Z2 = 0`
+      A.push((2, 1, one));
+      A.push((2, num_vars + 1, one));
+      B.push((2, num_vars, one));
+      C.push((2, 2, one));
+
+      // constraint 3 entries in (A,B,C)
+      // `(Z2 + 5) * 1 - I1 = 0`
+      A.push((3, 2, one));
+      A.push((3, num_vars, one + one + one + one + one));
+      B.push((3, num_vars, one));
+      C.push((3, num_vars + 2, one));
+
+      (num_cons, num_vars, num_io, A, B, C)
+    };
+
+    // create a shape object
+    let S = {
+      let res = R1CSShape::new(num_cons, num_vars, num_io, &A, &B, &C);
+      assert!(res.is_ok());
+      res.unwrap()
+    };
+
+    // generate generators and ro constants
+    let ck = R1CS::<G>::commitment_key(&S);
+    let ro_consts =
+      <<G as Group>::RO as ROTrait<<G as Group>::Base, <G as Group>::Scalar>>::Constants::new();
+
+    //随机产生两组满足R1CS的assignment, 例如
+    // Z0  Z1  Z2  1  I0  I1 
+    // [ 1  1  2   1  1  5] 
+    // [ 4  8  10  1  2  15]  
+  
+    // rand_inst_witness_generator 返回的结果是(I1, [Z0, Z1, Z2], [I0, I1])
+    let rand_inst_witness_generator =
+      |ck: &CommitmentKey<G>, I: &G::Scalar| -> (G::Scalar, R1CSInstance<G>, R1CSWitness<G>) {
+        let i0 = *I; //
+
+        // compute a satisfying (vars, X) tuple
+        let (O, vars, X) = {
+          let z0 = i0 * i0; // constraint 0
+          let z1 = i0 * z0; // constraint 1
+          let z2 = z1 + i0; // constraint 2
+          let i1 = z2 + one + one + one + one + one; // constraint 5
+
+          // store the witness and IO for the instance
+          let W = vec![z0, z1, z2];
+          let X = vec![i0, i1];
+          (i1, W, X)
+        };
+
+        let W = {  //将[Z0, Z1, Z2] 赋值给Witness
+          let res = R1CSWitness::new(&S, &vars);
+          assert!(res.is_ok());
+          res.unwrap()
+        };
+
+        let U = {
+          let comm_W = W.commit(ck);  //对W进行commit
+          let res = R1CSInstance::new(&S, &comm_W, &X);   //Instance = [commit_W, X]
+          assert!(res.is_ok());
+          res.unwrap()
+        };
+
+        // check that generated instance is satisfiable
+        assert!(S.is_sat(ck, &U, &W).is_ok());
+
+        (O, U, W)
+      };
+
+    let one  =  G::Scalar::from(1);
+    let two  =  G::Scalar::from(2);
+  
+    let (_, U1, W1) = rand_inst_witness_generator(&ck, &one);
+    let (_, U2, W2) = rand_inst_witness_generator(&ck, &two);
+
+    // execute a sequence of folds
+    execute_sequence(
+      &ck,
+      &ro_consts,
+      &<G as Group>::Scalar::ZERO,
+      &S,
+      &U1,
+      &W1,
+      &U2,
+      &W2,
+    );
+  }
+
+  #[test]
+  fn test_tiny_r1cs_deterministic() {
+    test_tiny_r1cs_with_deterministic::<pasta_curves::pallas::Point>();
+  }
+
 }

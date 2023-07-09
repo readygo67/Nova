@@ -236,7 +236,7 @@ where
       pp.ro_consts_circuit_primary.clone(),
     );
 
-    //合成到cs_primary上
+    //合成到cs_primary上, 
     let _ = circuit_primary.synthesize(&mut cs_primary);
     //获取u_primary 和 w_primary
     let (u_primary, w_primary) = cs_primary
@@ -252,7 +252,7 @@ where
       z0_secondary,
       None,
       None,
-      Some(u_primary.clone()),   //circuit_secondary的u = u_primary 
+      Some(u_primary.clone()),   //circuit_secondary的u = u_primary, 将本次的执行的证明u, 赋值给circuit_secondary，的u, 在后续的circuit_secondary.synthesize被证明
       None,
     );
     let circuit_secondary: NovaAugmentedCircuit<G1, C2> = NovaAugmentedCircuit::new(
@@ -270,7 +270,7 @@ where
     // IVC proof for the primary circuit
     let l_w_primary: R1CSWitness<G1> = w_primary;
     let l_u_primary = u_primary;
-    let r_W_primary = RelaxedR1CSWitness::from_r1cs_witness(&pp.r1cs_shape_primary, &l_w_primary);
+    let r_W_primary: RelaxedR1CSWitness<G1> = RelaxedR1CSWitness::from_r1cs_witness(&pp.r1cs_shape_primary, &l_w_primary);
     let r_U_primary =
       RelaxedR1CSInstance::from_r1cs_instance(&pp.ck_primary, &pp.r1cs_shape_primary, &l_u_primary);
 
@@ -321,7 +321,13 @@ where
     }
 
     // fold the secondary circuit's instance
-    // 更新nifs_secondary 的comm_T, 产生新的 r_U_secondary 和 r_W_secondary
+    // 更新nifs_secondary.comm_T, 产生新的 r_U_secondary 和 r_W_secondary
+    // r_U_secondary.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
+    // r_U_secondary.comm_W = U1.comm_W + U2.comm_W 
+    // r_U_secondary.X = U1.X + r * U2.X   //
+    // r_U_secondary.u = U1.u + r * U2.u //U2.u = 1
+    // r_W_secondary.W = W1.W + W2.W * r
+    // r_W_secondary.E = W1.E + T * r 
     let (nifs_secondary, (r_U_secondary, r_W_secondary)) = NIFS::prove(
       &pp.ck_secondary,
       &pp.ro_consts_secondary,
@@ -351,7 +357,7 @@ where
       c_primary.clone(),
       pp.ro_consts_circuit_primary.clone(),
     );
-    let _ = circuit_primary.synthesize(&mut cs_primary);
+      let _ = circuit_primary.synthesize(&mut cs_primary);
 
     let (l_u_primary, l_w_primary) = cs_primary
       .r1cs_instance_and_witness(&pp.r1cs_shape_primary, &pp.ck_primary)
@@ -830,7 +836,7 @@ mod tests {
   struct CubicCircuit<F: PrimeField> {
     _p: PhantomData<F>,
   }
-
+  //TODO(keep), 定义测试用的CubicCircuit 电路
   impl<F> StepCircuit<F> for CubicCircuit<F>
   where
     F: PrimeField,
@@ -1254,6 +1260,7 @@ mod tests {
       CommitmentKeyExtTrait<G2, CE = <G2 as Group>::CE>,
   {
     // y is a non-deterministic advice representing the fifth root of the input at a step.
+    // 定义一个测试用的电路，FifthRootCheckingCircuit，y = x^{1/5} by checking if y^5 = x
     #[derive(Clone, Debug)]
     struct FifthRootCheckingCircuit<F: PrimeField> {
       y: F,
@@ -1268,7 +1275,7 @@ mod tests {
         let rng = &mut rand::rngs::OsRng;
         let mut seed = F::random(rng);
         for _i in 0..num_steps + 1 {
-          seed *= seed.clone().square().square();
+          seed *= seed.clone().square().square(); //seed = seed * seed^4
 
           powers.push(Self { y: seed });
         }

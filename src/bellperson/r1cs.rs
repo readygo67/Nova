@@ -42,7 +42,7 @@ where
   ) -> Result<(R1CSInstance<G>, R1CSWitness<G>), NovaError> {
 
     let W = R1CSWitness::<G>::new(shape, &self.aux_assignment)?;  //witness 
-    let X = &self.input_assignment[1..]; //input
+    let X = &self.input_assignment[1..]; // 
 
     let comm_W = W.commit(ck);
 

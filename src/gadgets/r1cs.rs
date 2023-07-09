@@ -82,7 +82,7 @@ pub struct AllocatedRelaxedR1CSInstance<G: Group> {
   pub(crate) X0: BigNat<G::Base>,  //X[0]
   pub(crate) X1: BigNat<G::Base>,
 }
-
+  
 impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
   /// Allocates the given RelaxedR1CSInstance as a witness of the circuit
   pub fn alloc<CS: ConstraintSystem<<G as Group>::Base>>(
@@ -248,6 +248,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
 
   /// Folds self with a relaxed r1cs instance and returns the result
   /// AllocatedRelaxedR1CSInstance 把AllocatedR1CSInstance 折叠进来
+  // 对应论文中的 compute U_{i+1} ← NIFS.V(vk,U, u, T),
   #[allow(clippy::too_many_arguments)]
   pub fn fold_with_r1cs<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
@@ -284,13 +285,13 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
       Ok(*self.u.get_value().get()? + r.get_value().get()?)
     })?;
 
-    /// U.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
-    /// U.comm_W = U1.comm_W + U2.comm_W 
-    /// U.X = U1.X + r * U2.X   //
+    // U.comm_E = U1.comm_E + comm_T * r + r^2 * U2.comm_E(=0)  // 此处 U2 是R1CS instance, 所以U2.comm_E = 0
+    // U.comm_W = U1.comm_W + U2.comm_W 
+    // U.X = U1.X + r * U2.X   //
     //对应nifs.prove中如下操作
-    /// U.u = U1.u + r * U2.u //U2.u = 1
-    /// W.W = W1.W + W2.W * r
-    /// W.E = W1.E + T * r 
+    // U.u = U1.u + r * U2.u //U2.u = 1
+    // W.W = W1.W + W2.W * r
+    // W.E = W1.E + T * r 
     
     //约束 0 * 0 = u_fold = self.u + r 
     cs.enforce(
@@ -318,6 +319,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     )?;
 
     // Analyze X0 to bignat
+    // 从u中获取X0
     let X0_bn = BigNat::from_num(
       cs.namespace(|| "allocate X0_bn"),
       &Num::from(u.X0.clone()),
@@ -333,6 +335,7 @@ impl<G: Group> AllocatedRelaxedR1CSInstance<G> {
     let X0_fold = r_new_0.red_mod(cs.namespace(|| "reduce folded X[0]"), &m_bn)?;
 
     // Analyze X1 to bignat
+    //从u中获取X1
     let X1_bn = BigNat::from_num(
       cs.namespace(|| "allocate X1_bn"),
       &Num::from(u.X1.clone()),

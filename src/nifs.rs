@@ -39,7 +39,6 @@ impl<G: Group> NIFS<G> {
   /// U.X = U1.X + r * U2.X   //
   /// U.u = U1.u + r * U2.u //U2.u = 1
   
-
   /// W.W = W1.W + W2.W * r
   /// W.E = W1.E + T * r 
   ///  不仅返回了(U,W) 还更新了电路本身的comm_T.
@@ -101,7 +100,7 @@ impl<G: Group> NIFS<G> {
   /// and outputs a folded instance `U` with the same shape,
   /// with the guarantee that the folded instance `U`
   /// if and only if `U1` and `U2` are satisfiable.
-  /// 这个函数是verifier build RelaxedR1CS instance 
+  /// 这个函数是verifier 将 R1CS instance-witness tuple U2 折叠进 RelaxedR1CS instance 
   pub fn verify(
     &self,
     ro_consts: &ROConstants<G>,

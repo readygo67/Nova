@@ -26,6 +26,7 @@ pub struct R1CS<G: Group> {
 }
 
 /// A type that holds the shape of the R1CS matrices
+/// R1CSShape 包含R1CS的{A, B, C}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct R1CSShape<G: Group> {
   pub(crate) num_cons: usize,
@@ -252,6 +253,9 @@ impl<G: Group> R1CSShape<G> {
   /// Z2 = [W2, 1, U2.X]
   /// T = AZ1 * BZ2 + AZ2 * BZ1 - U1.u * CZ2 - U2.u * CZ1 
   /// comm_T = 「T」
+  ///  P: Send T := Com(ppE, T, rT ), where rT ←R F and with cross term
+  ///  T = AZ1 ◦ BZ2 + AZ2 ◦ BZ1 − u1 · CZ2 − u2 · CZ1.
+  ///  下面的实现中似乎没有选择rT的过程
   pub fn commit_T(
     &self,
     ck: &CommitmentKey<G>,
@@ -287,7 +291,7 @@ impl<G: Group> R1CSShape<G> {
       .map(|i| CZ_1[i])
       .collect::<Vec<G::Scalar>>();
 
-    let T = AZ_1_circ_BZ_2
+    let T: Vec<<G as Group>::Scalar> = AZ_1_circ_BZ_2
       .par_iter()
       .zip(&AZ_2_circ_BZ_1)
       .zip(&u_1_cdot_CZ_2)
@@ -512,7 +516,7 @@ impl<G: Group> RelaxedR1CSInstance<G> {
   }
 
   /// Folds an incoming RelaxedR1CSInstance into the current one
-  /// self = RelaxedR1CSInstance，将R1CSInstance 折叠进来，形成新的 RelaxedR1CSInstance, 
+  /// RelaxedR1CSInstance(self)，将R1CSInstance(U2)折叠进来，形成新的 RelaxedR1CSInstance, 
   /// R1CSInstance 的折叠在prover 和verifier都要做的
   /// comm_E = comm_E_1 + comm_T * r   // 此处 comm_E_2 = 0
   /// comm_W = comm_W_1 + comm_W_2 * r

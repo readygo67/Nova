@@ -24,8 +24,8 @@ where
   c: Vec<G::Scalar>,
 
   // Assignments of variables
-  pub(crate) input_assignment: Vec<G::Scalar>,
-  pub(crate) aux_assignment: Vec<G::Scalar>,
+  pub(crate) input_assignment: Vec<G::Scalar>,  //电路的instance
+  pub(crate) aux_assignment: Vec<G::Scalar>,    //电路的witness
 }
 use std::fmt;
 

@@ -196,6 +196,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
   /// Synthesizes base case and returns the new relaxed R1CSInstance
   /// The primary circuit just returns the default R1CS instance
   /// The secondary circuit returns the incoming R1CS instance
+  /// ) if i is 0, compute (Ui+1, Wi+1, T) ← (u⊥,w⊥, u⊥.E);
   fn synthesize_base_case<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
     mut cs: CS,
@@ -222,6 +223,10 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
 
   /// Synthesizes non base case and returns the new relaxed R1CSInstance
   /// And a boolean indicating if all checks pass
+  // 对应Construction 3 中的  otherwise,
+  // (1) check that ui.x = hash(vk, i, z0, zi, Ui), where ui.x is the public IO of ui,
+  // (3) compute Ui+1 ← NIFS.V(vk,U, u, T), and
+  
   #[allow(clippy::too_many_arguments)]
   fn synthesize_non_base_case<CS: ConstraintSystem<<G as Group>::Base>>(
     &self,
@@ -262,6 +267,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
     )?; //hash() = u.X0
 
     // Run NIFS Verifier
+    //compute U_{i+1} ← NIFS.V(vk,U, u, T), and
     let U_fold = U.fold_with_r1cs(
       cs.namespace(|| "compute fold of U and u"),
       params,
@@ -279,6 +285,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> NovaAugmentedCircuit<G, SC> {
 impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
   for NovaAugmentedCircuit<G, SC>
 {
+  //对应论文中的  F'(vk,Ui, ui ,(i, z0, zi), ωi, T) → x:
   fn synthesize<CS: ConstraintSystem<<G as Group>::Base>>(
     self,
     cs: &mut CS,
@@ -294,7 +301,8 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
     let is_base_case = alloc_num_equals(cs.namespace(|| "Check if base case"), &i.clone(), &zero)?; //当i = 0时is_base_case = true
 
     // Synthesize the circuit for the base case and get the new running instance
-    // 对于第一个u
+    // 对于第1个电路，调用 synthesize_base_case，对应论文中的 u⊥
+    // 对应Construction 3 中的  If i is 0, output hash(vk, 1, z0, F(z0, ωi), u⊥);
     let Unew_base = self.synthesize_base_case(cs.namespace(|| "base case"), u.clone())?;
 
     // Synthesize the circuit for the non-base case and get the new running
@@ -325,14 +333,14 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
       |lc| lc,
     );
 
-    // Compute the U_new
-    let Unew = Unew_base.conditionally_select(
+    // Compute the Unew，根据是否是第一个电路，选择Unew_base 或者 Unew_non_base 作为新的Unew
+    let Unew: AllocatedRelaxedR1CSInstance<G> = Unew_base.conditionally_select(
       cs.namespace(|| "compute U_new"),
       &Unew_non_base,
       &Boolean::from(is_base_case.clone()),
     )?;
 
-    // Compute i + 1
+    // Compute {i+1} = {i} + 1
     let i_new = AllocatedNum::alloc(cs.namespace(|| "i + 1"), || {
       Ok(*i.get_value().get()? + G::Base::ONE)
     })?;
@@ -352,7 +360,7 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
       &Boolean::from(is_base_case),
     )?;
 
-    // z_{i+1} = F(z_input)
+    // z_{i+1} = F(z_{i}), 调用业务电路的synthesize, 得到z_{i+1}, z_next 从哪里输出了？
     let z_next = self
       .step_circuit
       .synthesize(&mut cs.namespace(|| "F"), &z_input)?;
@@ -364,7 +372,8 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
     }
 
     // Compute the new hash H(params, Unew, i+1, z0, z_{i+1})
-    // h{i+1} = hash(params, i+1, z0, z_{i+1}, Unew)
+    // h{i+1} = hash(params, i+1, z0, z_{i+1}, U_{i+1})
+    //对应论文中的 output hash(vk, i + 1, z0, z_{i+1},U_{i+1}). 如果i=0， output hash(vk, 1, z0, F(z0, ωi), u⊥); 将第i，执行结果z_{i+1}, U_{i+1} 生成本次电路执行的指纹传递给第i+1步， 第i+1步的时候会检查
     let mut ro = G::ROCircuit::new(self.ro_consts, NUM_FE_WITHOUT_IO_FOR_CRHF + 2 * arity);
     ro.absorb(params);
     ro.absorb(i_new.clone());
@@ -379,6 +388,9 @@ impl<G: Group, SC: StepCircuit<G::Base>> Circuit<<G as Group>::Base>
     let hash = le_bits_to_num(cs.namespace(|| "convert hash to num"), &hash_bits)?;
 
     // Outputs the computed hash and u.X[1] that corresponds to the hash of the other circuit
+    // u.X1 什么时候被赋值的？u.X0 什么时候被赋值？
+    // 将u.X1 和 hash push 到self.input_assignment 中去，
+    
     u.X1
       .inputize(cs.namespace(|| "Output unmodified hash of the other circuit"))?;
     hash.inputize(cs.namespace(|| "output new hash of this circuit"))?; 
